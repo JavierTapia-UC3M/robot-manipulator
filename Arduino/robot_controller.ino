@@ -8,17 +8,13 @@
 const float Kp = 3.0;
 const float Kd = 0.3;
 
-// Limits
+// Potentiometer Safety Limits
 const int LOWER_LIMIT = 5;
 const int UPPER_LIMIT = 1018;
 
 // Processing Angle Limits
 const int ANGLE_LOWER_LIMIT = 0;
 const int ANGLE_UPPER_LIMIT = 180;
-
-// Step Input Constants
-const long STEP_DURATION_MS = 7000;
-const long CYCLE_DURATION_MS = 4 * STEP_DURATION_MS;
 
 // Serial Comms Config
 const byte numChars = 32;
@@ -29,7 +25,7 @@ const int MAX_ARGS = 5;   // Maximum arguments you expect to handle
 // Servos
 const int wrist_pin = 3;
 const int gripper_pin = 2;
-
+// Servos initialization values
 const int init_wrist_angle = 0;
 const int init_gripper_angle= 10; 
 const int closed_gripper_angle= 180;
@@ -136,44 +132,31 @@ void initServos(int pinWrist, int pinGripper){
   gripper.write(init_gripper_angle);
 }
 
-// Determines the target position based on time  fixed values
-void updateSetpoints() {
-
-  // --- CURRENT: FIXED SETPOINTS ---
-  motor1.setpoint = 700;
-  motor2.setpoint = 742;
-  motor3.setpoint = 140;
-
-  // Apply Safety Constraints
-  motor1.setpoint = constrain(motor1.setpoint, LOWER_LIMIT, UPPER_LIMIT);
-  motor2.setpoint = constrain(motor2.setpoint, LOWER_LIMIT, UPPER_LIMIT);
-  motor3.setpoint = constrain(motor3.setpoint, LOWER_LIMIT, UPPER_LIMIT);
-}
-
 // Core logic: Reads pot, calculates PD, writes to motor
 void runControlLoop(Motor &m) {
-  // 1. Calculate Time Delta (in seconds)
+  // Calculate Time Delta (in seconds)
   float nowSec = millis() / 1000.0;
   float prevSec = m.prevTimeMs / 1000.0;
   float dt = nowSec - prevSec;
   
-  if (dt <= 0) dt = 0.001; // Prevent division by zero
+  if (dt <= 0) dt = 0.001; // Prevent division by zero (shouldn't be needed)
 
-  // 2. Read Sensors
+  // Read Potentiometer
   m.input = analogRead(m.potPin);
 
-  // 3. Calculate Error
+  // Calculate Error
   float error = m.setpoint - m.input;
 
-  // 4. Calculate Derivative
+  // Calculate Derivative
   float derivative = (error - m.prevError) / dt;
 
-  // 5. Calculate PD Output
+  // Calculate PD Output
   m.output = (Kp * error) + (Kd * derivative);
 
-  // 6. Drive Hardware (H-Bridge Logic)
+  // Drive Hardware (H-Bridge Logic)
   int pwmValue = constrain(abs(m.output), 0, 255);
-  
+
+  // Set rotation direction
   if (m.output < 0) {
     digitalWrite(m.in1Pin, LOW);
     digitalWrite(m.in2Pin, HIGH);
@@ -181,9 +164,11 @@ void runControlLoop(Motor &m) {
     digitalWrite(m.in1Pin, HIGH);
     digitalWrite(m.in2Pin, LOW);
   }
+
+  // Send to driver
   analogWrite(m.enPin, pwmValue);
 
-  // 7. Save State for next loop
+  // Save State for next loop
   m.prevError = error;
   m.prevTimeMs = millis();
 }
@@ -223,9 +208,6 @@ void recvWithStartEndMarkers() {
   }
 }
 
-// ==========================================
-//           2. PARSE (DECODE) DATA
-// ==========================================
 ParsedPacket parseData() {
   char * strtokIndx; 
   int argCount = 0;   
@@ -236,7 +218,7 @@ ParsedPacket parseData() {
   // Use memset to clear the args array to 0s for safety
   memset(result.args, 0, sizeof(result.args)); 
 
-  // --- STEP A: Get the Command ---
+  // Get the Command
   strtokIndx = strtok(receivedChars, ",");      // Get first chunk
   
   // Safety check: if packet was empty (e.g. "<>")
@@ -246,7 +228,7 @@ ParsedPacket parseData() {
   strncpy(result.command, strtokIndx, 9); // Use strncpy for safety
   result.command[9] = '\0'; // Ensure null termination
 
-  // --- STEP B: Iterate through Arguments ---
+  // Iterate through Arguments
   argCount = 0; // Reset counter
   
   // Keep getting tokens until NULL (end of string)
